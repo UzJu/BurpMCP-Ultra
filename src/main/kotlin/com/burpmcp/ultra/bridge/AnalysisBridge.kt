@@ -72,37 +72,53 @@ class AnalysisBridge(private val api: MontoyaApi) {
      * reason phrase, headers, cookies, body, and MIME types.
      */
     fun analyzeResponse(rawResponse: String): JsonObject {
-        val httpResponse = HttpResponse.httpResponse(rawResponse)
+        // Normalize line endings for Montoya parser compatibility
+        val normalizedResponse = rawResponse
+            .replace("\\r\\n", "\r\n")
+            .replace("\\n", "\r\n")
+            .trim()
+        val httpResponse = HttpResponse.httpResponse(normalizedResponse)
 
-        val headers = buildJsonArray {
-            for (header in httpResponse.headers()) {
-                addJsonObject {
-                    put("name", header.name())
-                    put("value", header.value())
+        val headerCount = httpResponse.headers().size
+        val cookies: JsonArray
+        val headers: JsonArray
+
+        if (headerCount == 0 && normalizedResponse.isNotEmpty()) {
+            // Fallback: Montoya parser returned zero headers; manually parse
+            val parsed = fallbackParseResponseHeaders(normalizedResponse)
+            headers = parsed.first
+            cookies = parsed.second
+        } else {
+            headers = buildJsonArray {
+                for (header in httpResponse.headers()) {
+                    addJsonObject {
+                        put("name", header.name())
+                        put("value", header.value())
+                    }
                 }
             }
-        }
 
-        val cookies = buildJsonArray {
-            for (cookie in httpResponse.cookies()) {
-                addJsonObject {
-                    put("name", cookie.name())
-                    put("value", cookie.value())
-                    put("domain", cookie.domain() ?: "")
-                    put("path", cookie.path() ?: "")
-                    put("expiration", cookie.expiration()?.toString() ?: "")
+            cookies = buildJsonArray {
+                for (cookie in httpResponse.cookies()) {
+                    addJsonObject {
+                        put("name", cookie.name())
+                        put("value", cookie.value())
+                        put("domain", cookie.domain() ?: "")
+                        put("path", cookie.path() ?: "")
+                        put("expiration", cookie.expiration()?.toString() ?: "")
+                    }
                 }
             }
         }
 
         return buildJsonObject {
             put("status_code", httpResponse.statusCode())
-            put("reason_phrase", httpResponse.reasonPhrase() ?: "")
+            put("reason_phrase", sanitizeReasonPhrase(httpResponse.reasonPhrase()))
             put("stated_mime_type", httpResponse.statedMimeType()?.toString() ?: "unknown")
             put("inferred_mime_type", httpResponse.inferredMimeType()?.toString() ?: "unknown")
-            put("header_count", httpResponse.headers().size)
+            put("header_count", maxOf(headerCount, headers.size))
             put("headers", headers)
-            put("cookie_count", httpResponse.cookies().size)
+            put("cookie_count", maxOf(httpResponse.cookies().size, cookies.size))
             put("cookies", cookies)
             put("has_body", httpResponse.body() != null && httpResponse.body().length() > 0)
             put("body_length", httpResponse.body()?.length() ?: 0)
@@ -384,11 +400,44 @@ class AnalysisBridge(private val api: MontoyaApi) {
      * @param maxResults Maximum number of matching results.
      * @param inScopeOnly Whether to limit search to in-scope items.
      */
-    fun searchResponseBodies(pattern: String, maxResults: Int, inScopeOnly: Boolean): JsonObject {
+    fun searchResponseBodies(pattern: String, maxResults: Int, inScopeOnly: Boolean, response: String? = null): JsonObject {
         val regex = try {
             Regex(pattern, RegexOption.IGNORE_CASE)
         } catch (e: Exception) {
             return buildJsonObject { put("error", "Invalid regex: ${e.message}") }
+        }
+
+        // If a specific response is provided, search only that response body
+        if (response != null) {
+            try {
+                val httpResponse = HttpResponse.httpResponse(
+                    response.replace("\\r\\n", "\r\n").replace("\\n", "\r\n").trim()
+                )
+                val responseBody = httpResponse.bodyToString()
+                val matchResults = regex.findAll(responseBody).take(maxResults)
+                val matches = buildJsonArray {
+                    for (matchResult in matchResults) {
+                        addJsonObject {
+                            put("status_code", httpResponse.statusCode())
+                            put("match_value", matchResult.value)
+                            put("match_position", matchResult.range.first)
+                            val snippetStart = maxOf(0, matchResult.range.first - 50)
+                            val snippetEnd = minOf(responseBody.length, matchResult.range.last + 51)
+                            put("snippet", responseBody.substring(snippetStart, snippetEnd))
+                        }
+                    }
+                }
+                return buildJsonObject {
+                    put("pattern", pattern)
+                    put("in_scope_only", inScopeOnly)
+                    put("max_results", maxResults)
+                    put("match_count", matches.size)
+                    put("matches", matches)
+                    put("source", "provided_response")
+                }
+            } catch (e: Exception) {
+                return buildJsonObject { put("error", "Failed to parse provided response: ${e.message}") }
+            }
         }
 
         val proxyHistory = api.proxy().history()
@@ -882,5 +931,82 @@ class AnalysisBridge(private val api: MontoyaApi) {
 
         if (total == 0) return 100.0
         return Math.round((2.0 * intersection / total) * 10000.0) / 100.0
+    }
+
+    /**
+     * Sanitizes the reason phrase by taking only the first line.
+     * This prevents header pollution when the Montoya parser misparses
+     * responses with non-standard line endings.
+     */
+    private fun sanitizeReasonPhrase(reason: String?): String {
+        if (reason == null) return ""
+        val firstLine = reason.split("\n", "\r").firstOrNull() ?: ""
+        return firstLine.trim()
+    }
+
+    /**
+     * Fallback parser for HTTP response headers when the Montoya parser
+     * returns zero headers (e.g., for non-standard line endings).
+     * Extracts headers and Set-Cookie cookies from the raw response string.
+     */
+    private fun fallbackParseResponseHeaders(rawResponse: String): Pair<JsonArray, JsonArray> {
+        val headerList = mutableListOf<JsonObject>()
+        val cookieList = mutableListOf<JsonObject>()
+
+        try {
+            val lines = rawResponse.lines()
+            var headerEndIndex = lines.indexOfFirst { it.isEmpty() }
+            if (headerEndIndex == -1) headerEndIndex = lines.size
+
+            for (i in 1 until headerEndIndex) {
+                val line = lines[i]
+                val colonIndex = line.indexOf(':')
+                if (colonIndex > 0) {
+                    val name = line.substring(0, colonIndex).trim()
+                    val value = line.substring(colonIndex + 1).trim()
+
+                    headerList.add(buildJsonObject {
+                        put("name", name)
+                        put("value", value)
+                    })
+
+                    if (name.equals("Set-Cookie", ignoreCase = true)) {
+                        val cookieParts = value.split(";")
+                        for (part in cookieParts) {
+                            val eqIndex = part.indexOf('=')
+                            if (eqIndex > 0) {
+                                val attrName = part.substring(0, eqIndex).trim()
+                                if (!attrName.equals("domain", ignoreCase = true) &&
+                                    !attrName.equals("path", ignoreCase = true) &&
+                                    !attrName.equals("expires", ignoreCase = true) &&
+                                    !attrName.equals("secure", ignoreCase = true) &&
+                                    !attrName.equals("httponly", ignoreCase = true) &&
+                                    !attrName.equals("samesite", ignoreCase = true)
+                                ) {
+                                    cookieList.add(buildJsonObject {
+                                        put("name", attrName)
+                                        put("value", part.substring(eqIndex + 1).trim())
+                                        put("domain", "")
+                                        put("path", "")
+                                        put("expiration", "")
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // If fallback fails, return empty arrays
+        }
+
+        val headers = buildJsonArray {
+            headerList.forEach { add(it) }
+        }
+        val cookies = buildJsonArray {
+            cookieList.forEach { add(it) }
+        }
+
+        return Pair(headers, cookies)
     }
 }

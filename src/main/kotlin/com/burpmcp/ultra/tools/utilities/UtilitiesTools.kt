@@ -169,8 +169,9 @@ object UtilitiesTools {
         server.addTool(
             name = "util_compress",
             description = "Compress data using the specified algorithm. Parameters: " +
-                "data (required, base64-encoded input data), algorithm (required, " +
-                "one of: GZIP, DEFLATE, BROTLI). Returns base64-encoded compressed data."
+                "data (required, input data), algorithm (required, one of: GZIP, DEFLATE, BROTLI), " +
+                "input_type (optional, 'auto' auto-detects input format, 'base64' for base64 input, 'text' for plain text, " +
+                "default 'auto'). Returns base64-encoded compressed data."
         ) { request ->
             try {
                 val args = request.params.arguments ?: emptyMap()
@@ -184,8 +185,9 @@ object UtilitiesTools {
                         content = listOf(TextContent("""{"error":"Missing required parameter: algorithm"}""")),
                         isError = true
                     )
+                val inputType = args["input_type"]?.jsonPrimitive?.contentOrNull ?: "auto"
 
-                val result = bridge.compress(data, algorithm)
+                val result = bridge.compress(data, algorithm, inputType)
                 CallToolResult(content = listOf(TextContent(result.toString())))
             } catch (e: Exception) {
                 CallToolResult(
@@ -199,9 +201,10 @@ object UtilitiesTools {
         server.addTool(
             name = "util_decompress",
             description = "Decompress data using the specified algorithm. Parameters: " +
-                "data (required, base64-encoded compressed data), algorithm (required, " +
-                "one of: GZIP, DEFLATE, BROTLI). Returns base64-encoded decompressed " +
-                "data and a text representation if valid UTF-8."
+                "data (required, compressed data), algorithm (required, one of: GZIP, DEFLATE, BROTLI), " +
+                "input_type (optional, 'auto' auto-detects input format, 'base64' for base64 input, 'text' for plain text, " +
+                "default 'auto'). Returns base64-encoded decompressed data and a text " +
+                "representation if valid UTF-8."
         ) { request ->
             try {
                 val args = request.params.arguments ?: emptyMap()
@@ -215,8 +218,9 @@ object UtilitiesTools {
                         content = listOf(TextContent("""{"error":"Missing required parameter: algorithm"}""")),
                         isError = true
                     )
+                val inputType = args["input_type"]?.jsonPrimitive?.contentOrNull ?: "auto"
 
-                val result = bridge.decompress(data, algorithm)
+                val result = bridge.decompress(data, algorithm, inputType)
                 CallToolResult(content = listOf(TextContent(result.toString())))
             } catch (e: Exception) {
                 CallToolResult(

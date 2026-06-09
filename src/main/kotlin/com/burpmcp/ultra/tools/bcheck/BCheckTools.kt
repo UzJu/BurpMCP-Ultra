@@ -35,8 +35,10 @@ object BCheckTools {
                 "severity (required, one of: high, medium, low, information), confidence (required, one of: " +
                 "certain, firm, tentative), author (optional, defaults to BurpMCP-Ultra AI Agent), " +
                 "tags (optional, comma-separated tags), issue_detail (detailed issue description), " +
-                "issue_remediation (how to fix the issue). Use bcheck_templates first to understand " +
-                "the BCheck DSL patterns before creating checks."
+                "issue_remediation (how to fix the issue), script (optional, raw BCheck DSL " +
+                "script content; if provided, the structured params are ignored and the script " +
+                "is imported directly via importRaw), content (alias for script). " +
+                "Use bcheck_templates first to understand the BCheck DSL patterns before creating checks."
         ) { request ->
             try {
                 val args = request.params.arguments ?: emptyMap()
@@ -91,8 +93,13 @@ object BCheckTools {
                 val tags = args["tags"]?.jsonPrimitive?.contentOrNull
                 val issueDetail = args["issue_detail"]?.jsonPrimitive?.contentOrNull
                 val issueRemediation = args["issue_remediation"]?.jsonPrimitive?.contentOrNull
+                val script = args["script"]?.jsonPrimitive?.contentOrNull
+                    ?: args["content"]?.jsonPrimitive?.contentOrNull
 
-                val result = bridge.create(
+                val result = if (script != null) {
+                    bridge.importRaw(script)
+                } else {
+                    bridge.create(
                     name = name,
                     description = description,
                     author = author,
@@ -108,7 +115,8 @@ object BCheckTools {
                     confidence = confidence,
                     issueDetail = issueDetail,
                     issueRemediation = issueRemediation
-                )
+                    )
+                }
                 CallToolResult(content = listOf(TextContent(result.toString())))
             } catch (e: Exception) {
                 CallToolResult(

@@ -22,3 +22,6 @@ __pycache__/
 
 # Local config
 *.local
+
+# Pre-built JAR (users should build from source)
+burpmcp-ultra.jar

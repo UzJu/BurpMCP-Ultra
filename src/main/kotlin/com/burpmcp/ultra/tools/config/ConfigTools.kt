@@ -168,6 +168,7 @@ object ConfigTools {
             try {
                 val args = request.params.arguments ?: emptyMap()
                 val ruleIndex = args["rule_index"]?.jsonPrimitive?.intOrNull
+                    ?: args["index"]?.jsonPrimitive?.intOrNull
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent("""{"error":"Missing required parameter: rule_index"}""")),
                         isError = true

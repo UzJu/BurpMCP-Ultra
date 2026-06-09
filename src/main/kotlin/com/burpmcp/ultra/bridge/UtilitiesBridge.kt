@@ -133,13 +133,25 @@ class UtilitiesBridge(private val api: MontoyaApi) {
     /**
      * Compresses data using the specified algorithm.
      *
-     * @param data Base64-encoded input data.
+     * @param data Input data (base64-encoded or plain text depending on inputType).
      * @param algorithm One of: GZIP, DEFLATE, BROTLI.
+     * @param inputType The format of the input data: "base64" (default) or "text"/"raw"/"string"/"utf8".
      * @return JSON object with the base64-encoded compressed data.
      */
-    fun compress(data: String, algorithm: String): JsonObject {
+    fun compress(data: String, algorithm: String, inputType: String = "auto"): JsonObject {
         val compressionType = resolveCompressionType(algorithm)
-        val decodedBytes = Base64.getDecoder().decode(data)
+        val decodedBytes = when (inputType.lowercase()) {
+            "text", "raw", "string", "utf8" -> data.toByteArray(Charsets.UTF_8)
+            "base64" -> Base64.getDecoder().decode(data)
+            else -> {
+                // "auto": try base64 first, fall back to raw text
+                try {
+                    Base64.getDecoder().decode(data)
+                } catch (_: IllegalArgumentException) {
+                    data.toByteArray(Charsets.UTF_8)
+                }
+            }
+        }
         val inputBytes = BurpByteArray.byteArray(*decodedBytes)
         val compressed = api.utilities().compressionUtils().compress(inputBytes, compressionType)
         val encodedResult = Base64.getEncoder().encodeToString(compressed.getBytes())
@@ -160,13 +172,24 @@ class UtilitiesBridge(private val api: MontoyaApi) {
     /**
      * Decompresses data using the specified algorithm.
      *
-     * @param data Base64-encoded compressed data.
+     * @param data Compressed data (base64-encoded or raw text depending on inputType).
      * @param algorithm One of: GZIP, DEFLATE, BROTLI.
+     * @param inputType The format of the input data: "base64" (default) or "text"/"raw"/"string"/"utf8".
      * @return JSON object with the base64-encoded decompressed data.
      */
-    fun decompress(data: String, algorithm: String): JsonObject {
+    fun decompress(data: String, algorithm: String, inputType: String = "auto"): JsonObject {
         val compressionType = resolveCompressionType(algorithm)
-        val decodedBytes = Base64.getDecoder().decode(data)
+        val decodedBytes = when (inputType.lowercase()) {
+            "text", "raw", "string", "utf8" -> data.toByteArray(Charsets.UTF_8)
+            "base64" -> Base64.getDecoder().decode(data)
+            else -> {
+                try {
+                    Base64.getDecoder().decode(data)
+                } catch (_: IllegalArgumentException) {
+                    data.toByteArray(Charsets.UTF_8)
+                }
+            }
+        }
         val inputBytes = BurpByteArray.byteArray(*decodedBytes)
         val decompressed = api.utilities().compressionUtils().decompress(inputBytes, compressionType)
         val encodedResult = Base64.getEncoder().encodeToString(decompressed.getBytes())

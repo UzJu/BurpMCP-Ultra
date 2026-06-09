@@ -65,7 +65,9 @@ class PassiveIntelBridge(private val api: MontoyaApi) {
         maxItems: Int,
         inScopeOnly: Boolean,
         categories: List<String>?,
-        hostFilter: String?
+        hostFilter: String?,
+        offset: Int = 0,
+        limit: Int = 200
     ): JsonObject {
         return try {
             val history = api.proxy().history()
@@ -149,21 +151,37 @@ class PassiveIntelBridge(private val api: MontoyaApi) {
                 }
             }
 
+            // Flatten, paginate, and regroup findings
+            val totalFindings = dedupedFindings.values.sumOf { it.size }
+            val flatFindings = dedupedFindings.flatMap { (cat, matches) ->
+                matches.map { cat to it }
+            }
+            val paginatedFlat = flatFindings.drop(offset).take(limit)
+            val hasMore = (offset + limit) < totalFindings
+
+            val paginatedDeduped = mutableMapOf<String, MutableList<JsonObject>>()
+            for ((cat, finding) in paginatedFlat) {
+                paginatedDeduped.getOrPut(cat) { mutableListOf() }.add(finding)
+            }
+
             buildJsonObject {
                 put("items_scanned", itemsScanned)
-                put("total_findings", dedupedFindings.values.sumOf { it.size })
-                put("categories_with_findings", dedupedFindings.size)
+                put("total_findings", totalFindings)
+                put("has_more", hasMore)
+                put("offset", offset)
+                put("limit", limit)
+                put("categories_with_findings", paginatedDeduped.size)
 
                 // Summary by category
                 put("summary", buildJsonObject {
-                    dedupedFindings.forEach { (cat, matches) ->
+                    paginatedDeduped.forEach { (cat, matches) ->
                         put(cat, matches.size)
                     }
                 })
 
                 // Detailed findings
                 put("findings", buildJsonObject {
-                    dedupedFindings.forEach { (cat, matches) ->
+                    paginatedDeduped.forEach { (cat, matches) ->
                         put(cat, buildJsonArray { matches.forEach { add(it) } })
                     }
                 })

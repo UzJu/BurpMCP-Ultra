@@ -16,7 +16,7 @@ object SitemapTools {
                 "Supports filtering by URL prefix and regex search pattern. Parameters: " +
                 "url_prefix (optional, filter entries whose URL starts with this prefix), " +
                 "search_pattern (optional, regex pattern to match against URLs), " +
-                "max_results (optional, maximum entries to return, default 100), " +
+                "max_results or limit (optional, maximum entries to return, default 100), " +
                 "include_request (optional, boolean, include full request text, default false), " +
                 "include_response (optional, boolean, include full response text, default false)."
         ) { request ->
@@ -24,7 +24,9 @@ object SitemapTools {
                 val args = request.params.arguments ?: emptyMap()
                 val urlPrefix = args["url_prefix"]?.jsonPrimitive?.contentOrNull
                 val searchPattern = args["search_pattern"]?.jsonPrimitive?.contentOrNull
-                val maxResults = args["max_results"]?.jsonPrimitive?.intOrNull ?: 100
+                val maxResults = args["max_results"]?.jsonPrimitive?.intOrNull
+                    ?: args["limit"]?.jsonPrimitive?.intOrNull
+                    ?: 100
                 val includeRequest = args["include_request"]?.jsonPrimitive?.booleanOrNull ?: false
                 val includeResponse = args["include_response"]?.jsonPrimitive?.booleanOrNull ?: false
 

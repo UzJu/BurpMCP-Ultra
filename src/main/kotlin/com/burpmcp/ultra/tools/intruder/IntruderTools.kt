@@ -16,7 +16,8 @@ object IntruderTools {
             description = "Send an HTTP request to Burp Suite's Intruder tool for automated attack " +
                 "configuration. Creates a new Intruder tab with the specified request. " +
                 "Parameters: request (raw HTTP request string), host (target hostname), " +
-                "port (target port), use_tls (boolean), tab_name (optional tab name)."
+                "port (target port), use_tls (boolean, auto-detected from https param or port 443 if omitted), " +
+                "https (boolean, alias for use_tls), tab_name (optional tab name)."
         ) { request ->
             try {
                 val args = request.params.arguments ?: emptyMap()
@@ -35,7 +36,9 @@ object IntruderTools {
                         content = listOf(TextContent("""{"error":"Missing required parameter: port"}""")),
                         isError = true
                     )
-                val useTls = args["use_tls"]?.jsonPrimitive?.booleanOrNull ?: false
+                val useTls = args["use_tls"]?.jsonPrimitive?.booleanOrNull
+                    ?: args["https"]?.jsonPrimitive?.booleanOrNull
+                    ?: (port == 443)
                 val tabName = args["tab_name"]?.jsonPrimitive?.contentOrNull
 
                 val result = bridge.sendToIntruder(rawRequest, host, port, useTls, tabName)
@@ -53,7 +56,8 @@ object IntruderTools {
             description = "Send an HTTP request to Intruder with pre-defined payload insertion " +
                 "point positions. Each position is a [start, end] byte offset pair marking " +
                 "where payloads should be inserted. Parameters: request (raw HTTP request), " +
-                "host (target hostname), port (target port), use_tls (boolean), " +
+                "host (target hostname), port (target port), use_tls (boolean, auto-detected " +
+                "from https param or port 443 if omitted), https (boolean, alias for use_tls), " +
                 "positions (array of [start, end] pairs), tab_name (optional tab name)."
         ) { request ->
             try {
@@ -73,7 +77,9 @@ object IntruderTools {
                         content = listOf(TextContent("""{"error":"Missing required parameter: port"}""")),
                         isError = true
                     )
-                val useTls = args["use_tls"]?.jsonPrimitive?.booleanOrNull ?: false
+                val useTls = args["use_tls"]?.jsonPrimitive?.booleanOrNull
+                    ?: args["https"]?.jsonPrimitive?.booleanOrNull
+                    ?: (port == 443)
                 val tabName = args["tab_name"]?.jsonPrimitive?.contentOrNull
 
                 val rawPositions = args["positions"]?.jsonArray

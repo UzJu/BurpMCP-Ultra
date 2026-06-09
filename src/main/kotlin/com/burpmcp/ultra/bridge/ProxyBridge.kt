@@ -73,41 +73,58 @@ class ProxyBridge(
         maxResponseLength: Int? = null
     ): JsonObject {
         val filter = ProxyHistoryFilter { item ->
-            if (inScopeOnly && !item.request().isInScope()) return@ProxyHistoryFilter false
-            if (host != null && !item.host().contains(host, ignoreCase = true)) return@ProxyHistoryFilter false
-            if (method != null && !item.method().equals(method, ignoreCase = true)) return@ProxyHistoryFilter false
-            if (statusCode != null && item.hasResponse()) {
-                if (item.response().statusCode().toInt() != statusCode) return@ProxyHistoryFilter false
-            }
-            if (statusCodeRange != null && item.hasResponse()) {
-                val parts = statusCodeRange.split("-")
-                if (parts.size == 2) {
-                    val min = parts[0].trim().toIntOrNull() ?: 0
-                    val max = parts[1].trim().toIntOrNull() ?: 999
-                    val sc = item.response().statusCode().toInt()
-                    if (sc < min || sc > max) return@ProxyHistoryFilter false
+            try {
+                if (inScopeOnly && !item.request().isInScope()) return@ProxyHistoryFilter false
+                if (host != null && !item.host().contains(host, ignoreCase = true)) return@ProxyHistoryFilter false
+                if (method != null && !item.method().equals(method, ignoreCase = true)) return@ProxyHistoryFilter false
+                if (statusCode != null && item.hasResponse()) {
+                    if (item.response().statusCode().toInt() != statusCode) return@ProxyHistoryFilter false
                 }
+                if (statusCodeRange != null && item.hasResponse()) {
+                    val parts = statusCodeRange.split("-")
+                    if (parts.size == 2) {
+                        val min = parts[0].trim().toIntOrNull() ?: 0
+                        val max = parts[1].trim().toIntOrNull() ?: 999
+                        val sc = item.response().statusCode().toInt()
+                        if (sc < min || sc > max) return@ProxyHistoryFilter false
+                    }
+                }
+                if (mimeType != null) {
+                    val resolved = try { MimeType.valueOf(mimeType.uppercase()) } catch (_: Exception) { null }
+                    if (resolved != null && item.mimeType() != resolved) return@ProxyHistoryFilter false
+                }
+                true
+            } catch (_: Exception) {
+                false  // skip stale/broken items in filter
             }
-            if (mimeType != null) {
-                val resolved = try { MimeType.valueOf(mimeType.uppercase()) } catch (_: Exception) { null }
-                if (resolved != null && item.mimeType() != resolved) return@ProxyHistoryFilter false
-            }
-            true
         }
 
-        val allItems = api.proxy().history(filter)
+        val allItems = try {
+            api.proxy().history(filter).toList()  // .toList() forces eager materialization inside try-catch
+        } catch (_: Exception) {
+            emptyList()
+        }
         val totalFiltered = allItems.size
         val slice = allItems.drop(startIndex).take(count)
 
+        var serializationErrors = 0
         return buildJsonObject {
             put("total_filtered", totalFiltered)
             put("start_index", startIndex)
             put("returned", slice.size)
             put("items", buildJsonArray {
                 slice.forEach { item ->
-                    add(serializeHistoryItem(item, includeRequest, includeResponse, maxResponseLength))
+                    try {
+                        add(serializeHistoryItem(item, includeRequest, includeResponse, maxResponseLength))
+                    } catch (_: Exception) {
+                        serializationErrors++
+                        add(buildJsonObject {
+                            put("error", "Failed to serialize history item")
+                        })
+                    }
                 }
             })
+            if (serializationErrors > 0) put("serialization_errors", serializationErrors)
         }
     }
 
@@ -137,26 +154,35 @@ class ProxyBridge(
         val compiledPattern = Pattern.compile(pattern, flags)
 
         val filter = ProxyHistoryFilter { item ->
-            if (inScopeOnly && !item.request().isInScope()) return@ProxyHistoryFilter false
+            try {
+                if (inScopeOnly && !item.request().isInScope()) return@ProxyHistoryFilter false
 
-            val searchRequest = searchIn.equals("request", ignoreCase = true) ||
-                searchIn.equals("both", ignoreCase = true)
-            val searchResponse = searchIn.equals("response", ignoreCase = true) ||
-                searchIn.equals("both", ignoreCase = true)
+                val searchRequest = searchIn.equals("request", ignoreCase = true) ||
+                    searchIn.equals("both", ignoreCase = true)
+                val searchResponse = searchIn.equals("response", ignoreCase = true) ||
+                    searchIn.equals("both", ignoreCase = true)
 
-            var found = false
-            if (searchRequest) {
-                found = item.contains(compiledPattern)
+                var found = false
+                if (searchRequest) {
+                    found = item.contains(compiledPattern)
+                }
+                if (!found && searchResponse && item.hasResponse()) {
+                    found = compiledPattern.matcher(item.response().toString()).find()
+                }
+                found
+            } catch (_: Exception) {
+                false  // skip stale/broken items in filter
             }
-            if (!found && searchResponse && item.hasResponse()) {
-                found = compiledPattern.matcher(item.response().toString()).find()
-            }
-            found
         }
 
-        val matches = api.proxy().history(filter)
+        val matches = try {
+            api.proxy().history(filter)
+        } catch (_: Exception) {
+            emptyList()
+        }
         val limited = matches.take(maxResults)
 
+        var serializationErrors = 0
         return buildJsonObject {
             put("total_matches", matches.size)
             put("returned", limited.size)
@@ -164,9 +190,17 @@ class ProxyBridge(
             put("search_in", searchIn)
             put("items", buildJsonArray {
                 limited.forEach { item ->
-                    add(serializeHistoryItem(item, includeRequest, includeResponse, maxResponseLength))
+                    try {
+                        add(serializeHistoryItem(item, includeRequest, includeResponse, maxResponseLength))
+                    } catch (_: Exception) {
+                        serializationErrors++
+                        add(buildJsonObject {
+                            put("error", "Failed to serialize history item")
+                        })
+                    }
                 }
             })
+            if (serializationErrors > 0) put("serialization_errors", serializationErrors)
         }
     }
 
@@ -202,7 +236,7 @@ class ProxyBridge(
             true
         }
 
-        val allItems = api.proxy().webSocketHistory(filter)
+        val allItems = try { api.proxy().webSocketHistory(filter).toList() } catch (_: Exception) { emptyList() }
         val totalFiltered = allItems.size
         val slice = allItems.drop(startIndex).take(count)
 
@@ -239,7 +273,7 @@ class ProxyBridge(
             item.contains(compiledPattern)
         }
 
-        val matches = api.proxy().webSocketHistory(filter)
+        val matches = try { api.proxy().webSocketHistory(filter).toList() } catch (_: Exception) { emptyList() }
         val limited = matches.take(maxResults)
 
         return buildJsonObject {
@@ -296,11 +330,18 @@ class ProxyBridge(
      * @return JSON object confirming the annotation.
      */
     fun annotateHistoryItem(index: Int, comment: String?, highlight: String?): JsonObject {
-        val history = api.proxy().history()
-        val item = history.find { it.id() == index }
-            ?: return buildJsonObject {
-                put("error", "History item with id $index not found")
+        val history = try {
+            api.proxy().history().toList()
+        } catch (_: Exception) {
+            return buildJsonObject {
+                put("error", "Failed to access proxy history")
             }
+        }
+        val item = history.firstOrNull {
+            try { it.id() == index } catch (_: Exception) { false }
+        } ?: return buildJsonObject {
+            put("error", "History item with id $index not found")
+        }
 
         val annotations = item.annotations()
         if (comment != null) {
@@ -701,86 +742,93 @@ class ProxyBridge(
         includeResponse: Boolean,
         maxResponseLength: Int? = null
     ): JsonObject {
-        return buildJsonObject {
-            put("index", item.id())
-            put("host", item.host())
-            put("port", item.port())
-            put("secure", item.secure())
-            put("method", item.method())
-            put("url", item.url())
-            put("path", item.path())
-            put("edited", item.edited())
-            put("mime_type", item.mimeType().name)
-            put("has_response", item.hasResponse())
+        return try {
+            buildJsonObject {
+                put("index", item.id())
+                put("host", item.host())
+                put("port", item.port())
+                put("secure", item.secure())
+                put("method", item.method())
+                put("url", item.url())
+                put("path", item.path())
+                put("edited", item.edited())
+                put("mime_type", item.mimeType().name)
+                put("has_response", item.hasResponse())
 
-            // Timing
-            try {
-                val time = item.time()
-                if (time != null) put("time", time.toString())
-            } catch (_: Exception) { }
-
-            // Timing data
-            try {
-                val td = item.timingData()
-                if (td != null) {
-                    put("timing", buildJsonObject {
-                        put("time_to_first_byte_ms", td.timeBetweenRequestSentAndStartOfResponse().toMillis())
-                        put("time_to_complete_ms", td.timeBetweenRequestSentAndEndOfResponse().toMillis())
-                    })
-                }
-            } catch (_: Exception) { }
-
-            // Response metadata
-            if (item.hasResponse()) {
+                // Timing
                 try {
-                    val resp = item.response()
-                    put("status_code", resp.statusCode().toInt())
-                    put("response_length", resp.body().length())
-                    put("response_mime_type", resp.mimeType().name)
+                    val time = item.time()
+                    if (time != null) put("time", time.toString())
                 } catch (_: Exception) { }
-            }
 
-            // Annotations
-            try {
-                val ann = item.annotations()
-                if (ann.hasNotes()) put("comment", ann.notes())
-                if (ann.hasHighlightColor()) put("highlight", ann.highlightColor().name)
-            } catch (_: Exception) { }
-
-            // Request headers
-            try {
-                put("request_headers", buildJsonArray {
-                    item.request().headers().forEach { h ->
-                        add(buildJsonObject {
-                            put("name", h.name())
-                            put("value", h.value())
+                // Timing data
+                try {
+                    val td = item.timingData()
+                    if (td != null) {
+                        put("timing", buildJsonObject {
+                            put("time_to_first_byte_ms", td.timeBetweenRequestSentAndStartOfResponse().toMillis())
+                            put("time_to_complete_ms", td.timeBetweenRequestSentAndEndOfResponse().toMillis())
                         })
                     }
-                })
-            } catch (_: Exception) { }
+                } catch (_: Exception) { }
 
-            // Full request text
-            if (includeRequest) {
+                // Response metadata
+                if (item.hasResponse()) {
+                    try {
+                        val resp = item.response()
+                        put("status_code", resp.statusCode().toInt())
+                        put("response_length", resp.body().length())
+                        put("response_mime_type", resp.mimeType().name)
+                    } catch (_: Exception) { }
+                }
+
+                // Annotations
                 try {
-                    put("request", item.request().toString())
-                } catch (_: Exception) {
-                    put("request", "")
+                    val ann = item.annotations()
+                    if (ann.hasNotes()) put("comment", ann.notes())
+                    if (ann.hasHighlightColor()) put("highlight", ann.highlightColor().name)
+                } catch (_: Exception) { }
+
+                // Request headers
+                try {
+                    put("request_headers", buildJsonArray {
+                        item.request().headers().forEach { h ->
+                            add(buildJsonObject {
+                                put("name", h.name())
+                                put("value", h.value())
+                            })
+                        }
+                    })
+                } catch (_: Exception) { }
+
+                // Full request text
+                if (includeRequest) {
+                    try {
+                        put("request", item.request().toString())
+                    } catch (_: Exception) {
+                        put("request", "")
+                    }
+                }
+
+                // Full response text
+                if (includeResponse && item.hasResponse()) {
+                    try {
+                        val respStr = item.response().toString()
+                        val responseText = if (maxResponseLength != null && maxResponseLength > 0 && respStr.length > maxResponseLength) {
+                            respStr.take(maxResponseLength) + "... [truncated, full length: ${respStr.length}]"
+                        } else {
+                            respStr
+                        }
+                        put("response", responseText)
+                    } catch (_: Exception) {
+                        put("response", "")
+                    }
                 }
             }
-
-            // Full response text
-            if (includeResponse && item.hasResponse()) {
-                try {
-                    val respStr = item.response().toString()
-                    val responseText = if (maxResponseLength != null && maxResponseLength > 0 && respStr.length > maxResponseLength) {
-                        respStr.take(maxResponseLength) + "... [truncated, full length: ${respStr.length}]"
-                    } else {
-                        respStr
-                    }
-                    put("response", responseText)
-                } catch (_: Exception) {
-                    put("response", "")
-                }
+        } catch (_: Exception) {
+            buildJsonObject {
+                put("error", "Failed to serialize history item")
+                put("partial_info", "Item unavailable")
             }
         }
     }
@@ -789,7 +837,8 @@ class ProxyBridge(
      * Serializes a [ProxyWebSocketMessage] to a [JsonObject].
      */
     private fun serializeWebSocketItem(item: ProxyWebSocketMessage): JsonObject {
-        return buildJsonObject {
+        return try {
+            buildJsonObject {
             put("id", item.id())
             put("websocket_id", item.webSocketId())
             put("direction", item.direction().name)
@@ -829,6 +878,11 @@ class ProxyBridge(
                     put("upgrade_host", upgradeReq.httpService().host())
                 }
             } catch (_: Exception) { }
+        }
+        } catch (_: Exception) {
+            buildJsonObject {
+                put("error", "Failed to serialize WebSocket item")
+            }
         }
     }
 

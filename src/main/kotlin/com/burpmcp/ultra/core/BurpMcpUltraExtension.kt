@@ -62,14 +62,14 @@ class BurpMcpUltraExtension : BurpExtension {
         }
 
         uiTab.log("INFO", "System", "BurpMCP-Ultra v2.0.1 started")
-        uiTab.log("INFO", "System", "SSE transport: http://127.0.0.1:9876")
-        uiTab.log("INFO", "System", "Streamable HTTP transport: http://127.0.0.1:9877")
+        uiTab.log("INFO", "System", "SSE transport (port 9876): http://127.0.0.1:9876/sse")
+        uiTab.log("INFO", "System", "Streamable HTTP + SSE (port 9877): http://127.0.0.1:9877/")
         uiTab.log("INFO", "System", "Dashboard: http://127.0.0.1:9878")
         uiTab.log("INFO", "System", "Tools registered: 137 | MCP Resources: 14")
 
         api.logging().logToOutput("BurpMCP-Ultra v2.0.1 started")
-        api.logging().logToOutput("  SSE transport:             http://127.0.0.1:9876")
-        api.logging().logToOutput("  Streamable HTTP transport:  http://127.0.0.1:9877")
+        api.logging().logToOutput("  SSE transport:             http://127.0.0.1:9876/sse")
+        api.logging().logToOutput("  Streamable HTTP + SSE:      http://127.0.0.1:9877/")
         api.logging().logToOutput("  Dashboard:                  http://127.0.0.1:9878")
         api.logging().logToOutput("  stdio transport:            available")
         api.logging().logToOutput("  Tools registered:           137")

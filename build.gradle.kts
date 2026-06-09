@@ -17,8 +17,8 @@ dependencies {
     // Burp Suite Montoya API — provided by Burp at runtime, not bundled in the fat JAR
     compileOnly("net.portswigger.burp.extensions:montoya-api:2026.2")
 
-    // MCP Kotlin SDK (server component) — requires Ktor 3.2.3
-    implementation("io.modelcontextprotocol:kotlin-sdk-server:0.8.3")
+    // MCP Kotlin SDK (server component) — 0.9.0+ adds mcpStreamableHttp for Hermes compatibility
+    implementation("io.modelcontextprotocol:kotlin-sdk-server:0.9.0")
 
     // Kotlin coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")

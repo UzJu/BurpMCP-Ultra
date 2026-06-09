@@ -415,15 +415,49 @@ class BurpMcpUltraTab(
 
         try {
             serverManager.start()
-            serverRunning = true
+            // Server startup is asynchronous — show "starting" first,
+            // then verify ports are actually listening
             serverStartTime = System.currentTimeMillis()
-            updateStatusIndicator(true)
+            updateStatusIndicator(null) // indeterminate / starting state
             startButton.isEnabled = false
             stopButton.isEnabled = true
-            restartButton.isEnabled = true
+            restartButton.isEnabled = false // disable during startup
             ssePortField.isEditable = false
             httpPortField.isEditable = false
-            log("INFO", "System", "MCP server started (SSE: $ssePort, HTTP: $httpPort)")
+            log("INFO", "System", "Starting MCP server (SSE: $ssePort, HTTP: $httpPort)...")
+
+            // Delayed health check: verify ports are actually listening
+            // after giving the async coroutines time to bind
+            Timer(2000) {
+                SwingUtilities.invokeLater {
+                    val sseOk = serverManager.isSseRunning
+                    val httpOk = serverManager.isHttpRunning
+                    serverRunning = sseOk || httpOk
+                    updateStatusIndicator(serverRunning)
+                    restartButton.isEnabled = true
+                    if (serverRunning) {
+                        val parts = mutableListOf<String>()
+                        if (sseOk) parts.add("SSE:9876 ✓")
+                        else parts.add("SSE:9876 ✗")
+                        if (httpOk) parts.add("HTTP:9877 ✓")
+                        else parts.add("HTTP:9877 ✗")
+                        log("INFO", "System", "MCP server started — ${parts.joinToString(", ")}")
+                    } else {
+                        logError("System", "MCP server FAILED to start — no port is listening! Check Burp Extender output for errors.")
+                        JOptionPane.showMessageDialog(
+                            mainPanel,
+                            "MCP server failed to start. No port is listening.\n" +
+                            "Check Burp Suite → Extender → Output for error details.\n" +
+                            "Common causes: port conflict, firewall, or missing dependencies.",
+                            "Server Error",
+                            JOptionPane.ERROR_MESSAGE
+                        )
+                    }
+                }
+            }.apply {
+                isRepeats = false
+                start()
+            }
         } catch (e: Exception) {
             logError("System", "Failed to start server: ${e.message}")
             JOptionPane.showMessageDialog(
@@ -579,12 +613,27 @@ class BurpMcpUltraTab(
     /**
      * Updates the status indicator circle and text.
      *
-     * @param running True for green/Running, false for red/Stopped.
+     * @param running True for green/Running, false for red/Stopped,
+     *                null for yellow/Starting (indeterminate state).
      */
-    private fun updateStatusIndicator(running: Boolean) {
-        statusIndicator.icon = CircleIcon(if (running) Color(0x2E, 0xCC, 0x71) else Color(0xE7, 0x4C, 0x3C), 12)
-        statusText.text = if (running) "Running" else "Stopped"
-        statusText.foreground = if (running) Color(0x2E, 0xCC, 0x71) else Color(0xE7, 0x4C, 0x3C)
+    private fun updateStatusIndicator(running: Boolean?) {
+        when (running) {
+            true -> {
+                statusIndicator.icon = CircleIcon(Color(0x2E, 0xCC, 0x71), 12)
+                statusText.text = "Running"
+                statusText.foreground = Color(0x2E, 0xCC, 0x71)
+            }
+            false -> {
+                statusIndicator.icon = CircleIcon(Color(0xE7, 0x4C, 0x3C), 12)
+                statusText.text = "Stopped"
+                statusText.foreground = Color(0xE7, 0x4C, 0x3C)
+            }
+            null -> {
+                statusIndicator.icon = CircleIcon(Color(0xF3, 0x9C, 0x12), 12)
+                statusText.text = "Starting..."
+                statusText.foreground = Color(0xF3, 0x9C, 0x12)
+            }
+        }
     }
 
     // ── Utility Methods ──────────────────────────────────────────────────────

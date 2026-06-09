@@ -36,6 +36,7 @@ object HttpTools {
                 val method = args["method"]?.jsonPrimitive?.contentOrNull
                 val body = args["body"]?.jsonPrimitive?.contentOrNull
                 val rawRequest = args["raw_request"]?.jsonPrimitive?.contentOrNull
+                    ?: args["request"]?.jsonPrimitive?.contentOrNull
                 val host = args["host"]?.jsonPrimitive?.contentOrNull
                 val port = args["port"]?.jsonPrimitive?.intOrNull
                 val useTls = args["use_tls"]?.jsonPrimitive?.booleanOrNull
@@ -112,6 +113,7 @@ object HttpTools {
                 val args = request.params.arguments ?: emptyMap()
 
                 val steps = args["steps"].asJsonObjectList()
+                    ?: args["requests"].asJsonObjectList()
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent(buildJsonObject {
                             put("error", "Parameter 'steps' is required (array of step objects with url/raw_request and optional extract definitions)")
@@ -223,6 +225,7 @@ object HttpTools {
                     )
 
                 val keywords = args["keywords"].asStringList()
+                    ?: args["keyword"]?.jsonPrimitive?.contentOrNull?.let { listOf(it) }
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent(buildJsonObject {
                             put("error", "Parameter 'keywords' is required (array of keyword strings)")

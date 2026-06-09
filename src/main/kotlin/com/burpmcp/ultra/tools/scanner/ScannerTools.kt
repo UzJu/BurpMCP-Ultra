@@ -30,6 +30,7 @@ object ScannerTools {
                 val args = request.params.arguments ?: emptyMap()
 
                 val urls = args["urls"].asStringList()
+                    ?: args["url"]?.jsonPrimitive?.contentOrNull?.let { listOf(it) }
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent(buildJsonObject {
                             put("error", "Parameter 'urls' is required (array of URL strings)")
@@ -63,6 +64,7 @@ object ScannerTools {
                 val args = request.params.arguments ?: emptyMap()
 
                 val urls = args["urls"].asStringList()
+                    ?: args["url"]?.jsonPrimitive?.contentOrNull?.let { listOf(it) }
                 val requests = args["requests"].asStringList()
 
                 if (urls.isNullOrEmpty() && requests.isNullOrEmpty()) {

@@ -23,6 +23,10 @@ object ComparerTools {
                 val args = request.params.arguments ?: emptyMap()
 
                 val dataItems = args["data"].asStringList()
+                    ?: listOfNotNull(
+                        args["item1"]?.jsonPrimitive?.contentOrNull,
+                        args["item2"]?.jsonPrimitive?.contentOrNull
+                    ).takeIf { it.isNotEmpty() }
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent("""{"error":"Missing required parameter: data (array of strings)"}""")),
                         isError = true

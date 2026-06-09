@@ -199,11 +199,13 @@ object AnalysisTools {
             try {
                 val args = request.params.arguments ?: emptyMap()
                 val item1 = args["item1"]?.jsonPrimitive?.contentOrNull
+                    ?: args["request1"]?.jsonPrimitive?.contentOrNull
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent("""{"error":"Missing required parameter: item1"}""")),
                         isError = true
                     )
                 val item2 = args["item2"]?.jsonPrimitive?.contentOrNull
+                    ?: args["request2"]?.jsonPrimitive?.contentOrNull
                     ?: return@addTool CallToolResult(
                         content = listOf(TextContent("""{"error":"Missing required parameter: item2"}""")),
                         isError = true
@@ -228,12 +230,14 @@ object AnalysisTools {
         // 7. analyze_response_body_search
         server.addTool(
             name = "analyze_response_body_search",
-            description = "Search response bodies across the proxy history for a regex pattern. " +
-                "Useful for finding sensitive data leaks, specific tokens, error messages, " +
+            description = "Search response bodies for a regex pattern. If a response parameter is " +
+                "provided, searches only that response body. Otherwise, searches across the proxy " +
+                "history. Useful for finding sensitive data leaks, specific tokens, error messages, " +
                 "or patterns across all captured traffic. " +
                 "Parameters: pattern (string, regex pattern to search for), " +
                 "max_results (number, maximum matches to return; defaults to 50), " +
-                "in_scope_only (boolean, restrict to in-scope URLs; defaults to false)."
+                "in_scope_only (boolean, restrict to in-scope URLs; defaults to false), " +
+                "response (optional string, raw HTTP response to search instead of proxy history)."
         ) { request ->
             try {
                 val args = request.params.arguments ?: emptyMap()
@@ -244,9 +248,10 @@ object AnalysisTools {
                     )
                 val maxResults = args["max_results"]?.jsonPrimitive?.intOrNull ?: 50
                 val inScopeOnly = args["in_scope_only"]?.jsonPrimitive?.booleanOrNull ?: false
+                val response = args["response"]?.jsonPrimitive?.contentOrNull
 
                 val bridge = AnalysisBridge(getBurpApi(bridges))
-                val result = bridge.searchResponseBodies(pattern, maxResults, inScopeOnly)
+                val result = bridge.searchResponseBodies(pattern, maxResults, inScopeOnly, response)
                 CallToolResult(content = listOf(TextContent(result.toString())))
             } catch (e: Exception) {
                 CallToolResult(
