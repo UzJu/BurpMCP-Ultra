@@ -6,6 +6,8 @@ on:
         description: 'Release tag'
         required: true
         default: 'v2.0.2'
+permissions:
+  contents: write
 jobs:
   upload:
     runs-on: ubuntu-latest
